@@ -1,0 +1,53 @@
+<?xml version='1.0' ?>
+<BuildGraph xmlns="http://www.epicgames.com/BuildGraph" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.epicgames.com/BuildGraph ../../../../Engine/Build/Graph/Schema.xsd" >
+  <Property Name="LocalSourceDir" Value="$(RootDir)\Engine\Source\Programs\NotForLicensees\MayaLiveLinkPlugin"/>
+  <Property Name="LocalStagingDir" Value="$(LocalSourceDir)\Staging"/>
+  <Property Name="LocalBinaryDir" Value="$(RootDir)\Engine\Binaries\Win64\NotForLicensees\Maya"/>
+   <Property Name="LocalExtraDir" Value="$(RootDir)\Engine\Extras\NotForLicensees\MayaLiveLink"/>
+  
+  <Agent Name="MayaLiveLinkPlugin" Type="Win64">
+    <Node Name="Compile UnrealHeaderTool Win64">
+      <Compile Target="UnrealHeaderTool" Platform="Win64" Configuration="Development" Arguments="-precompile -nodebuginfo"/>
+    </Node>
+
+    <Node Name="Compile Maya 2016 Win64" Requires="Compile UnrealHeaderTool Win64">
+      <Compile Target="MayaLiveLinkPlugin2016" Platform="Win64" Configuration="Development" />
+    </Node>
+	
+	<Node Name="Compile Maya 2017 Win64" Requires="Compile UnrealHeaderTool Win64">
+      <Compile Target="MayaLiveLinkPlugin2017" Platform="Win64" Configuration="Development" />
+    </Node>
+	
+	<Node Name="Compile Maya 2018 Win64" Requires="Compile UnrealHeaderTool Win64">
+      <Compile Target="MayaLiveLinkPlugin2018" Platform="Win64" Configuration="Development" />
+    </Node>
+
+	<Node Name="Compile Maya 2019 Win64" Requires="Compile UnrealHeaderTool Win64">
+      <Compile Target="MayaLiveLinkPlugin2019" Platform="Win64" Configuration="Development" />
+    </Node>
+	
+	<Node Name="Stage Maya Plugin Module" Requires="Compile Maya 2016 Win64;Compile Maya 2017 Win64;Compile Maya 2018 Win64;Compile Maya 2019 Win64">
+		<Copy From="$(LocalSourceDir)\ReadMe.txt" To="$(LocalStagingDir)\MayaLiveLink\ReadMe.txt" />
+	
+		<Copy From="$(LocalBinaryDir)\2016\MayaLiveLinkPlugin2016.mll" To="$(LocalStagingDir)\MayaLiveLink\Binaries\2016\MayaLiveLinkPlugin2016.mll" />
+		<Copy From="$(LocalSourceDir)\MayaLiveLinkUI.py" To="$(LocalStagingDir)\MayaLiveLink\Binaries\2016\MayaLiveLinkUI.py" />
+		<Copy From="$(LocalSourceDir)\LiveLink.mod" To="$(LocalStagingDir)\MayaLiveLink\Binaries\2016\LiveLink.mod" />
+		
+		<Copy From="$(LocalBinaryDir)\2017\MayaLiveLinkPlugin2017.mll" To="$(LocalStagingDir)\MayaLiveLink\Binaries\2017\MayaLiveLinkPlugin2017.mll" />
+		<Copy From="$(LocalSourceDir)\MayaLiveLinkUI.py" To="$(LocalStagingDir)\MayaLiveLink\Binaries\2017\MayaLiveLinkUI.py" />
+		<Copy From="$(LocalSourceDir)\LiveLink.mod" To="$(LocalStagingDir)\MayaLiveLink\Binaries\2017\LiveLink.mod" />
+		
+		<Copy From="$(LocalBinaryDir)\2018\MayaLiveLinkPlugin2018.mll" To="$(LocalStagingDir)\MayaLiveLink\Binaries\2018\MayaLiveLinkPlugin2018.mll" />
+		<Copy From="$(LocalSourceDir)\MayaLiveLinkUI.py" To="$(LocalStagingDir)\MayaLiveLink\Binaries\2018\MayaLiveLinkUI.py" />
+		<Copy From="$(LocalSourceDir)\LiveLink.mod" To="$(LocalStagingDir)\MayaLiveLink\Binaries\2018\LiveLink.mod" />
+		
+		<Copy From="$(LocalBinaryDir)\2019\MayaLiveLinkPlugin2019.mll" To="$(LocalStagingDir)\MayaLiveLink\Binaries\2019\MayaLiveLinkPlugin2019.mll" />
+		<Copy From="$(LocalSourceDir)\MayaLiveLinkUI.py" To="$(LocalStagingDir)\MayaLiveLink\Binaries\2019\MayaLiveLinkUI.py" />
+		<Copy From="$(LocalSourceDir)\LiveLink.mod" To="$(LocalStagingDir)\MayaLiveLink\Binaries\2019\LiveLink.mod" />
+
+		<Zip FromDir="$(LocalStagingDir)" ZipFile="$(LocalStagingDir)\MayaLiveLink.zip"/>
+		
+		<Copy From="$(LocalStagingDir)\MayaLiveLink.zip" To="$(LocalExtraDir)\MayaLiveLink.zip" />
+	</Node>
+  </Agent>
+</BuildGraph>
