@@ -10,6 +10,10 @@
       <Compile Target="UnrealHeaderTool" Platform="Win64" Configuration="Development" Arguments="-precompile -nodebuginfo"/>
     </Node>
 
+    <Node Name="Compile Maya 2015 Win64" Requires="Compile UnrealHeaderTool Win64">
+      <Compile Target="MayaLiveLinkPlugin2015" Platform="Win64" Configuration="Development" />
+    </Node>
+
     <Node Name="Compile Maya 2016 Win64" Requires="Compile UnrealHeaderTool Win64">
       <Compile Target="MayaLiveLinkPlugin2016" Platform="Win64" Configuration="Development" />
     </Node>
@@ -26,9 +30,13 @@
       <Compile Target="MayaLiveLinkPlugin2019" Platform="Win64" Configuration="Development" />
     </Node>
 	
-	<Node Name="Stage Maya Plugin Module" Requires="Compile Maya 2016 Win64;Compile Maya 2017 Win64;Compile Maya 2018 Win64;Compile Maya 2019 Win64">
+	<Node Name="Stage Maya Plugin Module" Requires="Compile Maya 2015 Win64;Compile Maya 2016 Win64;Compile Maya 2017 Win64;Compile Maya 2018 Win64;Compile Maya 2019 Win64">
 		<Copy From="$(LocalSourceDir)\ReadMe.txt" To="$(LocalStagingDir)\MayaLiveLink\ReadMe.txt" />
-	
+
+		<Copy From="$(LocalBinaryDir)\2015\MayaLiveLinkPlugin2015.mll" To="$(LocalStagingDir)\MayaLiveLink\Binaries\2015\MayaLiveLinkPlugin2015.mll" />
+		<Copy From="$(LocalSourceDir)\MayaLiveLinkUI.py" To="$(LocalStagingDir)\MayaLiveLink\Binaries\2015\MayaLiveLinkUI.py" />
+		<Copy From="$(LocalSourceDir)\LiveLink.mod" To="$(LocalStagingDir)\MayaLiveLink\Binaries\2015\LiveLink.mod" />
+
 		<Copy From="$(LocalBinaryDir)\2016\MayaLiveLinkPlugin2016.mll" To="$(LocalStagingDir)\MayaLiveLink\Binaries\2016\MayaLiveLinkPlugin2016.mll" />
 		<Copy From="$(LocalSourceDir)\MayaLiveLinkUI.py" To="$(LocalStagingDir)\MayaLiveLink\Binaries\2016\MayaLiveLinkUI.py" />
 		<Copy From="$(LocalSourceDir)\LiveLink.mod" To="$(LocalStagingDir)\MayaLiveLink\Binaries\2016\LiveLink.mod" />

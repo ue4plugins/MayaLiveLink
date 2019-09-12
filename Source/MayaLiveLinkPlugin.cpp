@@ -26,6 +26,9 @@ IMPLEMENT_APPLICATION(MayaLiveLinkPlugin, "MayaLiveLinkPlugin");
 
 // Maya includes
 // For Maya 2016 the SDK has to be downloaded and installed manually for these includes to work.
+#ifndef BananaFritters
+#define BananaFritters unsigned int
+#endif
 #define DWORD BananaFritters
 #include <maya/MObject.h>
 #include <maya/MGlobal.h>
