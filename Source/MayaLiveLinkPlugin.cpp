@@ -454,6 +454,19 @@ public:
 	}
 };
 
+MString StripMayaNamespace(const MString& name)
+{
+	std::string stdname = name.asChar();
+	int charindex = stdname.rfind(":");
+	if (charindex != std::string::npos)
+	{
+		charindex++;
+		return stdname.substr(charindex).c_str();
+	}
+
+	return name;
+}
+
 struct FLiveLinkStreamedJointHierarchySubject : IStreamedEntity
 {
 	FLiveLinkStreamedJointHierarchySubject(FName InSubjectName, MDagPath InRootPath)
@@ -563,8 +576,7 @@ struct FLiveLinkStreamedJointHierarchySubject : IStreamedEntity
 				status = JointIterator.getPath(JointPath);
 				MFnIkJoint JointObject(JointPath);
 
-				FName JointName(JointObject.name().asChar());
-
+				FName JointName(StripMayaNamespace(JointObject.name()).asChar());
 				JointsToStream.Add(FStreamHierarchy(JointName, JointPath, ParentIndex));
 				AnimationData.BoneNames.Add(JointName);
 				AnimationData.BoneParents.Add(ParentIndex);
@@ -661,7 +673,7 @@ private:
 	MDagPath RootDagPath;
 	TArray<FStreamHierarchy> JointsToStream;
 	FStreamedUserDefinedAttributes StreamedAttributes;
-	
+
 	const TArray<FString> CharacterStreamOptions = { TEXT("Root Only"), TEXT("Full Hierarchy") };
 	enum FCharacterStreamMode
 	{
