@@ -272,6 +272,188 @@ struct FStreamHierarchy
 	{}
 };
 
+/*
+*	Utility class for keeping track of user defined attributes from the
+*	channel box in Maya.
+*/
+class FStreamedUserDefinedAttributes
+{
+protected:
+	/*
+	*	This struct is used to cache each attribute MPlug for the streamed 
+	* 	user defined attributes. The struct contains member variables to
+	*	allow dirty-checking to help trigger a refresh of static data
+	*	whenever an attribute property is modified in the channel box 
+	*	in Maya.
+	*/
+	struct FAttributeInfo
+	{
+		// An MPlug is a connection which supports reading values and properties from object attributes
+		MPlug Plug;
+		inline float Value() { return Plug.asFloat(); }
+
+		// The cached partialName of the attribute
+		MString PartialName = "";
+
+		// Determines if an attribute should be streamed via Live Link (see IsPlugRelevantForStream)
+		bool bRelevantForStream = false;
+
+		// Determines if an attribute property has been modified by the user
+		bool HasDirtyProperties() const
+		{
+			return (PartialName != Plug.partialName()) || (bRelevantForStream != IsPlugRelevantForStream(Plug));
+		}
+	};
+
+	// The total number of attributes available on the root joint of the streamed hierarchy
+	int NumAttributesOnRootJoint = 0;
+
+	// The sub-set of attributes added by the user to the root joint
+	TArray<FAttributeInfo> UserDefinedAttributes;
+
+public:
+	/*
+	*	Determines if a user defined attribute should be streamed via Live Link.
+	*	Note that MPlug is used for querying properties and not MFnAttribute. 
+	*	Even though both has the same functions defined, only MPlug replicates the 
+	*	behavior of getAttr in MEL. MFnAttribute behaves as attributeQuery in MEL,
+	*	which do not report the state of the attribute that is needed.
+	*/
+	static bool IsPlugRelevantForStream(MPlug Plug)
+	{
+		if (Plug.isLocked())
+		{
+			return false;
+		}
+		else
+		{
+			return Plug.isKeyable() || Plug.isChannelBoxFlagSet();
+		}
+	}
+
+	/*
+	*	Returns the number of custom user defined attributes on the joint.
+	*	Attributes are index-based and custom attributes are added at the
+	*	end of the range. User defined attributes are marked isDynamic().
+	*/
+	int NumUserDefinedAttributesOnJoint(MFnIkJoint& Joint)
+	{
+		int UserDefinedAttributeCount = 0;
+		int LastAttributeIndex = Joint.attributeCount() - 1;
+		for (int i = LastAttributeIndex; i >= 0; i--)
+		{
+			bool bIsUserDefined = static_cast<MFnAttribute>(Joint.attribute(i)).isDynamic();
+			if (!bIsUserDefined) 
+			{
+				// There are no more dynamic / user defined attributes in the range
+				break;
+			}
+
+			UserDefinedAttributeCount++;
+		}
+
+		return UserDefinedAttributeCount;
+	}
+
+	bool HasAnyAttributeChangedProperties()
+	{
+		for (auto& Attribute : UserDefinedAttributes)
+		{
+			if (Attribute.HasDirtyProperties())
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/*
+	*	Determine if any of the attributes on the root joint has changed since last update.
+	*/
+	bool HasAttributeListChanged(TArray<FStreamHierarchy>& JointsToStream)
+	{
+		if (JointsToStream.Num() == 0)
+		{
+			// We have defined attributes, but no joints to stream. 
+			// Something is off, trigger "changed".
+			return (UserDefinedAttributes.Num() > 0);
+		}
+
+		MFnIkJoint& RootInStream = JointsToStream[0].JointObject;
+		if (NumAttributesOnRootJoint != RootInStream.attributeCount())
+		{
+			return true;
+		}
+		else
+		{
+			bool bNumUserAttributesChanged = (UserDefinedAttributes.Num() != NumUserDefinedAttributesOnJoint(RootInStream));
+			return bNumUserAttributesChanged || HasAnyAttributeChangedProperties();
+		}
+	}
+
+	void CopyValuesToFrameData(FLiveLinkAnimationFrameData& AnimationFrameData)
+	{
+		AnimationFrameData.PropertyValues.SetNum(0);
+		for (auto& Attribute : UserDefinedAttributes)
+		{
+			if (Attribute.bRelevantForStream)
+			{
+				AnimationFrameData.PropertyValues.Add(Attribute.Value());
+				//MGlobal::displayInfo(MString("LiveLink stream: ") + Attribute.PartialName + ": " + AnimationFrameData.PropertyValues.Last());
+			}
+		}
+	}
+
+	/*
+	*	Finds all user defined attributes and adds them to the SkeletonStaticData
+	*/
+	void UpdateStaticData(TArray<FStreamHierarchy>& JointsToStream, FLiveLinkSkeletonStaticData& SkeletonStaticData)
+	{
+		NumAttributesOnRootJoint = 0;
+		UserDefinedAttributes.SetNum(0);
+		SkeletonStaticData.PropertyNames.SetNum(0);
+
+		if (JointsToStream.Num() > 0)
+		{
+			MFnIkJoint& RootInStream = JointsToStream[0].JointObject;
+			int NumUserAttributes = NumUserDefinedAttributesOnJoint(RootInStream);
+			if (NumUserAttributes == 0)
+			{
+				return; // because there is nothing to stream
+			}
+
+			// Determine range for user defined attributes
+			NumAttributesOnRootJoint = RootInStream.attributeCount();
+			int LastAttributeId = NumAttributesOnRootJoint - 1;
+			int FirstAttributeId = NumAttributesOnRootJoint - NumUserAttributes;
+
+			// Attempt to access each user defined attribute and add each to the stream
+			MStatus FindPlugStatus;
+			for (int i = FirstAttributeId; i <= LastAttributeId; i++)
+			{
+				MFnAttribute Attribute = RootInStream.attribute(i);
+				MPlug NewPlug = RootInStream.findPlug(Attribute.object(), FindPlugStatus);
+				if (FindPlugStatus == MStatus::kSuccess)
+				{
+					FAttributeInfo NewAttribute{NewPlug, NewPlug.partialName(), IsPlugRelevantForStream(NewPlug)};
+					UserDefinedAttributes.Add(NewAttribute);
+					if (NewAttribute.bRelevantForStream)
+					{
+						SkeletonStaticData.PropertyNames.Add(NewAttribute.PartialName.asChar());
+					}
+				}
+			}
+		}
+
+		// Enable for print debug
+		//for (auto& Attribute : Attributes)
+		//{
+		//	MGlobal::displayInfo(MString("LiveLink UpdateStaticData: ") + Attribute.PartialName + (Attribute.bRelevantForStream? "" : " (not streamed)"));
+		//}
+	}
+};
+
 struct FLiveLinkStreamedJointHierarchySubject : IStreamedEntity
 {
 	FLiveLinkStreamedJointHierarchySubject(FName InSubjectName, MDagPath InRootPath)
@@ -388,6 +570,7 @@ struct FLiveLinkStreamedJointHierarchySubject : IStreamedEntity
 				AnimationData.BoneParents.Add(ParentIndex);
 			}
 
+			StreamedAttributes.UpdateStaticData(JointsToStream, AnimationData);
 			LiveLinkProvider->UpdateSubjectStaticData(SubjectName, ULiveLinkAnimationRole::StaticClass(), MoveTemp(StaticData));
 		}
 	}
@@ -413,6 +596,13 @@ struct FLiveLinkStreamedJointHierarchySubject : IStreamedEntity
 		}
 		else if (StreamMode == FCharacterStreamMode::FullHierarchy)
 		{
+			// The user can add/remove/lock attributes in the channel box
+			// after adding the subject. Trigger a rebuild if that happens.
+			if (StreamedAttributes.HasAttributeListChanged(JointsToStream))
+			{
+				RebuildSubjectData();
+			}
+
 			FLiveLinkFrameDataStruct FrameData(FLiveLinkAnimationFrameData::StaticStruct());
 			FLiveLinkAnimationFrameData& AnimationData = *FrameData.Cast<FLiveLinkAnimationFrameData>();
 
@@ -448,6 +638,7 @@ struct FLiveLinkStreamedJointHierarchySubject : IStreamedEntity
 			}
 
 			AnimationData.WorldTime = StreamTime;
+			StreamedAttributes.CopyValuesToFrameData(AnimationData);
 			LiveLinkProvider->UpdateSubjectFrameData(SubjectName, MoveTemp(FrameData));
 		}
 	}
@@ -469,7 +660,8 @@ private:
 	FName SubjectName;
 	MDagPath RootDagPath;
 	TArray<FStreamHierarchy> JointsToStream;
-
+	FStreamedUserDefinedAttributes StreamedAttributes;
+	
 	const TArray<FString> CharacterStreamOptions = { TEXT("Root Only"), TEXT("Full Hierarchy") };
 	enum FCharacterStreamMode
 	{
