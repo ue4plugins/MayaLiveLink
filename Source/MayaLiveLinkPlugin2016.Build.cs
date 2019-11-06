@@ -43,16 +43,20 @@ public abstract class MayaLiveLinkPluginBase : ModuleRules
 
 				if (Target.Platform == UnrealTargetPlatform.Win64)  // @todo: Support other platforms?
 				{
-					PublicLibraryPaths.Add(GetMayaLibraryPath());
+					string LibDir = GetMayaLibraryPath();
 
 					// Maya libraries we're depending on
-					PublicAdditionalLibraries.AddRange(new string[]
-						{
+					string[] Libs = new string[]
+					{
 							"Foundation.lib",
 							"OpenMaya.lib",
 							"OpenMayaAnim.lib",
-							"OpenMayaUI.lib"}
-					);
+							"OpenMayaUI.lib"
+					};
+					foreach(string Lib in Libs)
+					{
+						 PublicAdditionalLibraries.Add(Path.Combine(LibDir, Lib));
+					}
 				}
 			}
 			//else

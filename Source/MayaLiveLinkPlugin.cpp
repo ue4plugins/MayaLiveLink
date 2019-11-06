@@ -27,6 +27,7 @@ IMPLEMENT_APPLICATION(MayaLiveLinkPlugin, "MayaLiveLinkPlugin");
 // Maya includes
 // For Maya 2016 the SDK has to be downloaded and installed manually for these includes to work.
 #define DWORD BananaFritters
+THIRD_PARTY_INCLUDES_START
 #include <maya/MObject.h>
 #include <maya/MGlobal.h>
 #include <maya/MFnPlugin.h>
@@ -62,7 +63,7 @@ IMPLEMENT_APPLICATION(MayaLiveLinkPlugin, "MayaLiveLinkPlugin");
 #include <maya/MUiMessage.h>
 #include <maya/MSyntax.h>
 #include <maya/MArgDatabase.h>
-
+THIRD_PARTY_INCLUDES_END
 #undef DWORD
 
 #define MCHECKERROR(STAT,MSG)                   \
@@ -194,7 +195,7 @@ FTransform BuildUETransformFromMayaTransform(MMatrix& InMatrix)
 
 	// getRotation is MSpace::kTransform
 	double tx, ty, tz, tw;
-	UnrealSpaceJointTransform.getRotationQuaternion(tx, ty, tz, tw, MSpace::kWorld);
+	UnrealSpaceJointTransform.getRotationQuaternion(tx, ty, tz, tw);
 
 	FTransform UETrans;
 	UETrans.SetRotation(FQuat(tx, ty, tz, tw));
@@ -516,8 +517,8 @@ public:
 		{
 			FLiveLinkStaticDataStruct StaticData(FLiveLinkCameraStaticData::StaticStruct());
 			FLiveLinkCameraStaticData& CameraData = *StaticData.Cast<FLiveLinkCameraStaticData>();
-			CameraData.bIsFieldOfViewSupported = true;
 			CameraData.bIsAspectRatioSupported = true;
+			CameraData.bIsFieldOfViewSupported = true;
 			CameraData.bIsFocalLengthSupported = true;
 			CameraData.bIsProjectionModeSupported = true;
 			LiveLinkProvider->UpdateSubjectStaticData(SubjectName, ULiveLinkCameraRole::StaticClass(), MoveTemp(StaticData));
@@ -568,9 +569,11 @@ public:
 				FLiveLinkFrameDataStruct FrameData(FLiveLinkCameraFrameData::StaticStruct());
 				FLiveLinkCameraFrameData& CameraData = *FrameData.Cast<FLiveLinkCameraFrameData>();
 
-				CameraData.FieldOfView = C.horizontalFieldOfView();
+				CameraData.Aperture = C.fStop();
 				CameraData.AspectRatio = C.aspectRatio();
+				CameraData.FieldOfView = C.horizontalFieldOfView();
 				CameraData.FocalLength = C.focalLength();
+				CameraData.FocusDistance = C.focusDistance();
 				CameraData.ProjectionMode = C.isOrtho() ? ELiveLinkCameraProjectionMode::Orthographic : ELiveLinkCameraProjectionMode::Perspective;
 
 				CameraData.Transform = CameraTransform;
@@ -646,6 +649,30 @@ public:
 	FLiveLinkStreamedCameraSubject(FName InSubjectName, MDagPath InDagPath) : FLiveLinkBaseCameraStreamedSubject(InSubjectName), CameraPath(InDagPath) {}
 
 	virtual bool ShouldDisplayInUI() const override { return true; }
+
+	virtual void RebuildSubjectData() override
+	{
+		FLiveLinkBaseCameraStreamedSubject::RebuildSubjectData();
+
+		if (StreamMode == FCameraStreamMode::Camera)
+		{
+			MFnCamera MayaCamera(CameraPath);
+			MStatus Status;
+			const bool IsDepthOfFieldEnabled = MayaCamera.isDepthOfField(&Status);
+			if (IsDepthOfFieldEnabled)
+			{
+				FLiveLinkStaticDataStruct StaticData(FLiveLinkCameraStaticData::StaticStruct());
+				FLiveLinkCameraStaticData& CameraData = *StaticData.Cast<FLiveLinkCameraStaticData>();
+				CameraData.bIsApertureSupported = true;
+				CameraData.bIsAspectRatioSupported = true;
+				CameraData.bIsFieldOfViewSupported = true;
+				CameraData.bIsFocalLengthSupported = true;
+				CameraData.bIsFocusDistanceSupported = true;
+				CameraData.bIsProjectionModeSupported = true;
+				LiveLinkProvider->UpdateSubjectStaticData(SubjectName, ULiveLinkCameraRole::StaticClass(), MoveTemp(StaticData));
+			}
+		}
+	}
 
 	virtual void OnStream(double StreamTime, int32 FrameNumber) override
 	{
@@ -1050,9 +1077,14 @@ public:
 		return (*Found).Get();
 	}
 
-	void Reset()
+	void ClearSubjects()
 	{
 		Subjects.Reset();
+	}
+
+	void Reset()
+	{
+		ClearSubjects();
 		AddSubjectOfType<FLiveLinkStreamedActiveCamera>();
 	}
 
@@ -1378,6 +1410,11 @@ private:
 
 };
 
+void OnMayaExit(void* client)
+{
+	LiveLinkStreamManager->ClearSubjects();
+}
+
 void OnScenePreOpen(void* client)
 {
 	LiveLinkStreamManager->Reset();
@@ -1513,9 +1550,6 @@ DLLEXPORT MStatus initializePlugin(MObject MayaPluginObject)
 		GEngineLoop.PreInit(TEXT("MayaLiveLinkPlugin -Messaging"));
 		ProcessNewlyLoadedUObjects();
 
-		// ensure target platform manager is referenced early as it must be created on the main thread
-		GetTargetPlatformManager();
-
 		// Tell the module manager is may now process newly-loaded UObjects when new C++ modules are loaded
 		FModuleManager::Get().StartProcessingNewlyLoadedObjects();
 
@@ -1524,11 +1558,15 @@ DLLEXPORT MStatus initializePlugin(MObject MayaPluginObject)
 		GLog->TearDown(); //clean up existing output devices
 		GLog->AddOutputDevice(new FMayaOutputDevice()); //Add Maya output device
 
-		LiveLinkProvider = ILiveLinkProvider::CreateLiveLinkProvider(TEXT("Maya Live Link"));
-		ConnectionStatusChangedHandle = LiveLinkProvider->RegisterConnStatusChangedHandle(FLiveLinkProviderConnectionStatusChanged::FDelegate::CreateStatic(&OnConnectionStatusChanged));
-
-		bUEInitialized = true; // Dont redo this part if someone unloads and reloads our plugin
+		bUEInitialized = true; // Don't redo this part if someone unloads and reloads our plugin
 	}
+
+	LiveLinkProvider = ILiveLinkProvider::CreateLiveLinkProvider(TEXT("Maya Live Link"));
+	ConnectionStatusChangedHandle = LiveLinkProvider->RegisterConnStatusChangedHandle(FLiveLinkProviderConnectionStatusChanged::FDelegate::CreateStatic(&OnConnectionStatusChanged));
+
+	// We do not tick the core engine but we need to tick the ticker to make sure the message bus endpoint in LiveLinkProvider is up to date
+	FTicker::GetCoreTicker().Tick(1.f);
+	LiveLinkStreamManager = MakeShareable(new FLiveLinkStreamedSubjectManager());
 
 	// Tell Maya about our plugin
 	MFnPlugin MayaPlugin(
@@ -1536,12 +1574,8 @@ DLLEXPORT MStatus initializePlugin(MObject MayaPluginObject)
 		"MayaLiveLinkPlugin",
 		"v1.0");
 
-	// We do not tick the core engine but we need to tick the ticker to make sure the message bus endpoint in LiveLinkProvider is
-	// up to date
-	FTicker::GetCoreTicker().Tick(1.f);
-
-	LiveLinkStreamManager = MakeShareable(new FLiveLinkStreamedSubjectManager());
-
+	MCallbackId MayaExitingCallbackId = MSceneMessage::addCallback(MSceneMessage::kMayaExiting, (MMessage::MBasicFunction)OnMayaExit);
+	myCallbackIds.append(MayaExitingCallbackId);
 
 	MCallbackId forceUpdateCallbackId = MDGMessage::addForceUpdateCallback((MMessage::MTimeFunction)OnForceChange);
 	myCallbackIds.append(forceUpdateCallbackId);
@@ -1589,7 +1623,7 @@ DLLEXPORT MStatus initializePlugin(MObject MayaPluginObject)
 DLLEXPORT MStatus uninitializePlugin(MObject MayaPluginObject)
 {
 	// Make sure the Garbage Collector does not try to remove Delete Listeners on shutdown as those will be invalid causing a crash
-	GIsRequestingExit = true;
+	RequestEngineExit(TEXT("MayaLiveLink uninitializePlugin"));
 
 	// Get the plugin API for the plugin object
 	MFnPlugin MayaPlugin(MayaPluginObject);
@@ -1613,24 +1647,16 @@ DLLEXPORT MStatus uninitializePlugin(MObject MayaPluginObject)
 		MMessage::removeCallbacks(myCallbackIds);
 	}
 
+	LiveLinkStreamManager->ClearSubjects();
+
 	if (ConnectionStatusChangedHandle.IsValid())
 	{
 		LiveLinkProvider->UnregisterConnStatusChangedHandle(ConnectionStatusChangedHandle);
 		ConnectionStatusChangedHandle.Reset();
 	}
 
-	// Maya 2016 does not clean up the address space when unloading a plugin.
-	// So if we cleaned up here it would crash in the init above when trying to load the plugin a second.
-	const MString MayaApiVersion = MayaPlugin.apiVersion();
-	if (FString(MayaApiVersion.asChar()).Compare("201700") >= 0)
-	{
-		LiveLinkProvider.Reset();
-		LiveLinkStreamManager.Reset();
-
-		GEngineLoop.AppPreExit();
-		FModuleManager::Get().UnloadModulesAtShutdown();
-		GEngineLoop.AppExit();
-	}
+	LiveLinkProvider.Reset();
+	LiveLinkStreamManager.Reset();
 
 	MGlobal::executeCommand("MayaLiveLinkClearUI");
 
