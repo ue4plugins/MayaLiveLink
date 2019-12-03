@@ -233,6 +233,20 @@ void OutputRotation(const MMatrix& M)
 	MGlobal::displayInfo(*V.ToString());
 }
 
+FString StripMayaNamespace(const MString& InName)
+{
+	//Strip colons from joint names to keep initial hierarchy names when referencing scenes
+	//Colon is an illegal character for names in Maya so only namespaces will be affected
+	FString StringName(InName.asChar());
+	const int32 CharIndex = StringName.Find(TEXT(":"), ESearchCase::IgnoreCase, ESearchDir::FromEnd);
+	if (StringName.IsValidIndex(CharIndex))
+	{
+		StringName.RightChopInline(CharIndex+1);
+	}
+
+	return StringName;
+}
+
 struct IStreamedEntity
 {
 public:
@@ -379,8 +393,7 @@ struct FLiveLinkStreamedJointHierarchySubject : IStreamedEntity
 				status = JointIterator.getPath(JointPath);
 				MFnIkJoint JointObject(JointPath);
 
-				FName JointName(JointObject.name().asChar());
-
+				const FName JointName(*StripMayaNamespace(JointObject.name()));
 				JointsToStream.Add(FStreamHierarchy(JointName, JointPath, ParentIndex));
 				AnimationData.BoneNames.Add(JointName);
 				AnimationData.BoneParents.Add(ParentIndex);
@@ -990,7 +1003,7 @@ public:
 		return Subject;
 	}
 
-	void AddJointHeirarchySubject(FName SubjectName, MDagPath RootPath)
+	void AddJointHierarchySubject(FName SubjectName, MDagPath RootPath)
 	{
 		AddSubjectOfType<FLiveLinkStreamedJointHierarchySubject>(SubjectName, RootPath);
 	}
@@ -1034,7 +1047,7 @@ public:
 
 			if (PathBackup.hasFn(MFn::kJoint))
 			{
-				AddJointHeirarchySubject(NewName.asChar(), PathBackup);
+				AddJointHierarchySubject(NewName.asChar(), PathBackup);
 			}
 			else if (PathBackup.hasFn(MFn::kCamera))
 			{
@@ -1233,7 +1246,7 @@ public:
 
 				if (CurrentItemPath.hasFn(MFn::kJoint))
 				{
-					LiveLinkStreamManager->AddJointHeirarchySubject(SubjectName, CurrentItemPath);
+					LiveLinkStreamManager->AddJointHierarchySubject(SubjectName, CurrentItemPath);
 					ItemAdded = true;
 				}
 				else if (CurrentItemPath.hasFn(MFn::kCamera))

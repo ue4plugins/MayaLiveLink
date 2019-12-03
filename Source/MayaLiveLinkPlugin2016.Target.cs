@@ -11,6 +11,7 @@ public abstract class MayaLiveLinkPluginTargetBase : TargetRules
 
 		bShouldCompileAsDLL = true;
 		LinkType = TargetLinkType.Monolithic;
+		SolutionDirectory = "Programs/LiveLink";
 
 		// We only need minimal use of the engine for this plugin
 		bBuildDeveloperTools = false;

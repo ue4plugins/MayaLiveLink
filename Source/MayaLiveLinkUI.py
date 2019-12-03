@@ -19,7 +19,7 @@ def OnRemoveSubject(SubjectPath):
 	RefreshSubjects()
 
 def CreateSubjectTable():
-	cmds.rowColumnLayout("SubjectLayout", numberOfColumns=5,  adjustableColumn=2, columnWidth=[(1, 20), (2,80), (3, 100), (4, 180), (5, 120)], columnOffset=[(1, 'right', 5), (2, 'right', 10), (4, 'left', 10)], parent="SubjectWrapperLayout")
+	cmds.rowColumnLayout("SubjectLayout", numberOfColumns=5, columnWidth=[(1, 20), (2,80), (3, 100), (4, 180), (5, 120)], columnOffset=[(1, 'right', 5), (2, 'right', 10), (4, 'left', 10)], parent="SubjectWrapperLayout")
 	cmds.text(label="")
 	cmds.text(label="Subject Type", font="boldLabelFont", align="left")
 	cmds.text(label="Subject Name", font="boldLabelFont", align="left")
