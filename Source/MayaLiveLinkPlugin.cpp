@@ -992,7 +992,7 @@ public:
 	template<class SubjectType, typename... ArgsType>
 	TSharedPtr<SubjectType> AddSubjectOfType(ArgsType&&... Args)
 	{
-		TSharedPtr<SubjectType> Subject = MakeShareable(new SubjectType(Args...));
+		TSharedPtr<SubjectType> Subject = MakeShareable(new SubjectType(Forward<ArgsType>(Args)...));
 
 		Subject->RebuildSubjectData();
 
