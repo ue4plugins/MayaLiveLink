@@ -1,3 +1,7 @@
++ MAYAVERSION:2022 PLATFORM:win64 LiveLink 2.0 ./2022
+plug-ins: .
+scripts: .
+
 + MAYAVERSION:2020 PLATFORM:win64 LiveLink 2.0 ./2020
 plug-ins: .
 scripts: .
