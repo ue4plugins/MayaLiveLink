@@ -1,5 +1,6 @@
 import sys
 import inspect
+import json
 
 import maya.api.OpenMaya as OpenMaya
 import maya.OpenMayaMPx as OpenMayaMPx
@@ -147,7 +148,7 @@ class MayaLiveLinkUI(LiveLinkCommand):
         if (cmds.window(self.WindowName, exists=True)):
             cmds.deleteUI(self.WindowName)
         cmds.window(
-            self.WindowName, title=self.Title,
+            self.WindowName, title=self.Title, menuBar=True,
             widthHeight=(self.WindowSize[0], self.WindowSize[1]))
 
         # Get current connection status
@@ -177,11 +178,107 @@ class MayaLiveLinkUI(LiveLinkCommand):
             label='Add Selection', parent="mainColumn",
             command=self.AddSelection)
 
+        SettingsMenu = cmds.menu(label='Settings', parent=self.WindowName)
+        cmds.menuItem(
+            label='Network Endpoints', parent=SettingsMenu,
+            command=self.ShowNetworkEndpointsDialog)
+
         cmds.showWindow(self.WindowName)
 
     def AddSelection(self, *args):
         cmds.LiveLinkAddSelection()
         RefreshSubjects()
+
+    def ShowNetworkEndpointsDialog(self, *args, **kwargs):
+        # Store the current endpoint settings.
+        UnicastEndpoint = cmds.LiveLinkMessagingSettings(
+            q=True, unicastEndpoint=True)
+        StaticEndpoints = cmds.LiveLinkMessagingSettings(
+            q=True, staticEndpoints=True)
+
+        def CreateUI():
+            Form = cmds.setParent(q=True)
+
+            DialogLayout = cmds.columnLayout(
+                "NetworkEndpointsDialogLayout", parent=Form,
+                columnWidth=400)
+
+            EndpointsLayout = cmds.rowColumnLayout(
+                "EndpointsLayout", parent=DialogLayout,
+                numberOfColumns=2, adjustableColumn=2,
+                columnWidth=[(1, 100), (2, 300)],
+                columnOffset=[(1, 'left', 5), (2, 'left', 5)])
+
+            cmds.text(
+                parent=EndpointsLayout, label="Unicast Endpoint:",
+                font="boldLabelFont", height=30, align="left")
+            UnicastTextField = cmds.textField(
+                parent=EndpointsLayout, text=UnicastEndpoint,
+                placeholderText='X.X.X.X:X')
+
+            cmds.text(
+                parent=EndpointsLayout, label="Static Endpoints:",
+                font="boldLabelFont", height=30, align="left")
+            StaticTextField = cmds.textField(
+                parent=EndpointsLayout, text=','.join(StaticEndpoints),
+                placeholderText='X.X.X.X:X,Y.Y.Y.Y:Y,...')
+
+            def _OnCancel(*args, **kwargs):
+                cmds.layoutDialog(dismiss="")
+
+            def _OnOk(*args, **kwargs):
+                NewUnicastEndpoint = cmds.textField(
+                    UnicastTextField, q=True, text=True).strip()
+                NewStaticEndpoints = cmds.textField(
+                    StaticTextField, q=True, text=True).strip() or []
+                if NewStaticEndpoints:
+                    NewStaticEndpoints = [
+                        Endpoint.strip() for Endpoint in
+                        NewStaticEndpoints.split(',')]
+
+                EndpointsDict = {
+                    'unicast': NewUnicastEndpoint,
+                    'static': NewStaticEndpoints
+                }
+
+                cmds.layoutDialog(dismiss=json.dumps(EndpointsDict))
+
+            ButtonsLayout = cmds.rowLayout(
+                "ButtonsLayout", parent=DialogLayout, numberOfColumns=2,
+                columnWidth=[(1, 200), (2, 200)])
+            cmds.button(
+                parent=ButtonsLayout, label='Cancel', width=200, height=30,
+                command=_OnCancel)
+            cmds.button(
+                parent=ButtonsLayout, label='Ok', width=200, height=30,
+                command=_OnOk)
+
+        result = cmds.layoutDialog(ui=CreateUI, title='Set Network Endpoints')
+        if result:
+            # Apply new endpoint settings if they differ from the current
+            # settings.
+            EndpointsDict = json.loads(result)
+            NewUnicastEndpoint = EndpointsDict['unicast']
+            NewStaticEndpoints = EndpointsDict['static']
+
+            if NewUnicastEndpoint != UnicastEndpoint:
+                cmds.LiveLinkMessagingSettings(
+                    NewUnicastEndpoint, unicastEndpoint=True)
+
+            if NewStaticEndpoints != StaticEndpoints:
+                RemovedStaticEndpoints = list(
+                    set(StaticEndpoints) - set(NewStaticEndpoints))
+                AddedStaticEndpoints = list(
+                    set(NewStaticEndpoints) - set(StaticEndpoints))
+
+                if RemovedStaticEndpoints:
+                    cmds.LiveLinkMessagingSettings(
+                        *RemovedStaticEndpoints, staticEndpoints=True,
+                        removeEndpoint=True)
+                if AddedStaticEndpoints:
+                    cmds.LiveLinkMessagingSettings(
+                        *AddedStaticEndpoints, staticEndpoints=True,
+                        addEndpoint=True)
 
 
 # Command to Refresh the subject UI
