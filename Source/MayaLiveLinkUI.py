@@ -2,7 +2,7 @@ import sys
 import inspect
 
 import maya
-import maya.OpenMaya as OpenMaya
+import maya.api.OpenMaya as OpenMaya
 import maya.OpenMayaMPx as OpenMayaMPx
 import maya.cmds as cmds
 from pymel.core.windows import Callback, CallbackWithArgs
@@ -142,14 +142,6 @@ class MayaLiveLinkRefreshUI(LiveLinkCommand):
 	def doIt(self,argList):
 		RefreshSubjects()
 
-class MayaLiveLinkClearUI(LiveLinkCommand):
-	def __init__(self):
-		LiveLinkCommand.__init__(self)
-	
-	def doIt(self, argList):
-		ClearSubjects()
-		CreateSubjectTable()
-
 # Command to Refresh the connection UI
 class MayaLiveLinkRefreshConnectionUI(LiveLinkCommand):
 	def __init__(self):
@@ -165,6 +157,15 @@ class MayaLiveLinkRefreshConnectionUI(LiveLinkCommand):
 #Grab commands declared
 Commands = GetLiveLinkCommandsFromModule(dir())
 
+AfterPluginUnloadCallbackId = None
+
+def AfterPluginUnloadCallback(stringArray, clientData):
+	for stringVal in stringArray:
+		if stringVal.startswith('MayaLiveLinkPlugin'):
+			ClearSubjects()
+			CreateSubjectTable()
+			return
+
 #Initialize the script plug-in
 def initializePlugin(mobject):
 	mplugin = OpenMayaMPx.MFnPlugin(mobject)
@@ -178,9 +179,18 @@ def initializePlugin(mobject):
 			sys.stderr.write( "Failed to register command: %s\n" % Command.__name__ )
 			raise
 
+	global AfterPluginUnloadCallbackId
+	AfterPluginUnloadCallbackId = OpenMaya.MSceneMessage.addStringArrayCallback(
+		OpenMaya.MSceneMessage.kAfterPluginUnload, AfterPluginUnloadCallback)
+
 # Uninitialize the script plug-in
 def uninitializePlugin(mobject):
 	mplugin = OpenMayaMPx.MFnPlugin(mobject)
+
+	global AfterPluginUnloadCallbackId
+	if AfterPluginUnloadCallbackId is not None:
+		OpenMaya.MSceneMessage.removeCallback(AfterPluginUnloadCallbackId)
+		AfterPluginUnloadCallbackId = None
 
 	for Command in Commands:
 		try:

@@ -1678,8 +1678,6 @@ DLLEXPORT MStatus uninitializePlugin(MObject MayaPluginObject)
 	LiveLinkProvider.Reset();
 	LiveLinkStreamManager.Reset();
 
-	MGlobal::executeCommand("MayaLiveLinkClearUI");
-
 	FTicker::GetCoreTicker().Tick(1.f);
 
 	const MStatus MayaStatusResult = MS::kSuccess;
