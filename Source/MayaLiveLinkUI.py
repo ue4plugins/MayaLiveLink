@@ -181,10 +181,10 @@ Commands = GetLiveLinkCommandsFromModule(dir())
 def initializePlugin(mobject):
 	mplugin = OpenMayaMPx.MFnPlugin(mobject)
 
-	print "LiveLink:"
+	print("LiveLink:")
 	for Command in Commands:
 		try:
-			print "\tRegistering Command '%s'"%Command.__name__
+			print("\tRegistering Command '%s'" % Command.__name__)
 			mplugin.registerCommand( Command.__name__, Command.Creator )
 		except:
 			sys.stderr.write( "Failed to register command: %s\n" % Command.__name__ )
