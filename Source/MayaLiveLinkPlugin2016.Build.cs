@@ -38,24 +38,45 @@ public abstract class MayaLiveLinkPluginBase : ModuleRules
 				PublicDefinitions.Add("NT_PLUGIN=1");
 				PublicDefinitions.Add("REQUIRE_IOSTREAM=1");
 
-				string IncludePath = GetMayaIncludePath();
-				PrivateIncludePaths.Add(IncludePath);
+				string MayaIncludePath = GetMayaIncludePath();
+				PrivateIncludePaths.Add(MayaIncludePath);
+
+				string UfeIncludePath = GetUfeIncludePath();
+				if (Directory.Exists(UfeIncludePath))
+				{
+					PrivateIncludePaths.Add(UfeIncludePath);
+				}
 
 				if (Target.Platform == UnrealTargetPlatform.Win64)  // @todo: Support other platforms?
 				{
-					string LibDir = GetMayaLibraryPath();
+					string MayaLibDir = GetMayaLibraryPath();
 
 					// Maya libraries we're depending on
-					string[] Libs = new string[]
+					string[] MayaLibs = new string[]
 					{
-							"Foundation.lib",
-							"OpenMaya.lib",
-							"OpenMayaAnim.lib",
-							"OpenMayaUI.lib"
+						"Foundation.lib",
+						"OpenMaya.lib",
+						"OpenMayaAnim.lib",
+						"OpenMayaUI.lib"
 					};
-					foreach(string Lib in Libs)
+					foreach(string MayaLib in MayaLibs)
 					{
-						 PublicAdditionalLibraries.Add(Path.Combine(LibDir, Lib));
+						 PublicAdditionalLibraries.Add(Path.Combine(MayaLibDir, MayaLib));
+					}
+
+					string UfeLibDir = GetUfeLibraryPath();
+
+					if (Directory.Exists(UfeLibDir))
+					{
+						// UFE libraries we're depending on
+						string[] UfeLibs = new string[]
+						{
+							"ufe_2.lib"
+						};
+						foreach (string UfeLib in UfeLibs)
+						{
+							PublicAdditionalLibraries.Add(Path.Combine(UfeLibDir, UfeLib));
+						}
 					}
 				}
 			}
@@ -67,9 +88,26 @@ public abstract class MayaLiveLinkPluginBase : ModuleRules
 	}
 
 	public abstract string GetMayaVersion();
-	public virtual string GetMayaInstallFolderPath() { return @"C:\Program Files\Autodesk\Maya" + GetMayaVersion(); }
+	public virtual string GetMayaInstallFolderPath()
+	{
+		// Try with standard setup
+		string Location = @"C:\Program Files\Autodesk\Maya" + GetMayaVersion();
+		if (!Directory.Exists(Location))
+		{
+			// Try with build machine setup
+			string SDKRootEnvVar = System.Environment.GetEnvironmentVariable("UE_SDKS_ROOT");
+			if (SDKRootEnvVar != null && SDKRootEnvVar != "")
+			{
+				Location = Path.Combine(SDKRootEnvVar, "HostWin64", "Win64", "Maya", GetMayaVersion());
+			}
+		}
+
+		return Location;
+	}
 	public virtual string GetMayaIncludePath() { return Path.Combine(GetMayaInstallFolderPath(), "include"); }
 	public virtual string GetMayaLibraryPath() { return Path.Combine(GetMayaInstallFolderPath(), "lib"); }
+	public virtual string GetUfeIncludePath() { return Path.Combine(GetMayaInstallFolderPath(), "devkit", "ufe", "include"); }
+	public virtual string GetUfeLibraryPath() { return Path.Combine(GetMayaInstallFolderPath(), "devkit", "ufe", "lib"); }
 }
 
 public class MayaLiveLinkPlugin2016 : MayaLiveLinkPluginBase
