@@ -159,21 +159,6 @@ class MayaLiveLinkRefreshConnectionUI(LiveLinkCommand):
 			ConnectionText, ConnectedState = cmds.LiveLinkConnectionStatus()
 			cmds.text("ConnectionStatusUI", edit=True, label=ConnectionText, backgroundColor=ConnectionColourMap[ConnectedState])
 
-class MayaLiveLinkGetActiveCamera(LiveLinkCommand):
-	def __init__(self):
-		LiveLinkCommand.__init__(self)
-		
-	# Invoked when the command is run.
-	def doIt(self,argList):
-		self.clearResult()
-		try:
-			c = cmds.getPanel(wf=1)
-			cam = cmds.modelPanel(c, q=True, camera=True)
-		except:
-			pass
-		else:
-			self.setResult(cam)
-
 #Grab commands declared
 Commands = GetLiveLinkCommandsFromModule(dir())
 
