@@ -16,6 +16,8 @@ public abstract class MayaLiveLinkPluginBase : ModuleRules
 			"Core",
 			"CoreUObject",
 			"ApplicationCore",
+			"Messaging",
+			"Networking",
 			"Projects",
 			"UdpMessaging",
 			"LiveLinkInterface",

@@ -3,7 +3,11 @@
 #include "RequiredProgramMainCPPInclude.h"
 #include "Misc/CommandLine.h"
 #include "Async/TaskGraphInterfaces.h"
+#include "Features/IModularFeatures.h"
+#include "INetworkMessagingExtension.h"
+#include "Interfaces/IPv4/IPv4Endpoint.h"
 #include "Modules/ModuleManager.h"
+#include "Shared/UdpMessagingSettings.h"
 #include "UObject/Object.h"
 #include "Misc/ConfigCacheIni.h"
 
@@ -1122,6 +1126,54 @@ public:
 	}
 };
 
+void OnConnectionStatusChanged()
+{
+	MGlobal::executeCommand("MayaLiveLinkRefreshConnectionUI");
+}
+
+void StartLiveLink()
+{
+	if (LiveLinkProvider.IsValid())
+	{
+		FPlatformMisc::LowLevelOutputDebugString(TEXT("Live Link Provider already started!\n"));
+		return;
+	}
+
+	LiveLinkProvider = ILiveLinkProvider::CreateLiveLinkProvider(TEXT("Maya Live Link"));
+
+	ConnectionStatusChangedHandle = LiveLinkProvider->RegisterConnStatusChangedHandle(
+		FLiveLinkProviderConnectionStatusChanged::FDelegate::CreateStatic(
+			&OnConnectionStatusChanged));
+
+	// We do not tick the core engine but we need to tick the ticker to make sure the message
+	// bus endpoint in LiveLinkProvider is up to date.
+	FTicker::GetCoreTicker().Tick(1.0f);
+
+	FPlatformMisc::LowLevelOutputDebugString(TEXT("Live Link Provider started!\n"));
+}
+
+void StopLiveLink()
+{
+	if (ConnectionStatusChangedHandle.IsValid())
+	{
+		if (LiveLinkProvider.IsValid())
+		{
+			LiveLinkProvider->UnregisterConnStatusChangedHandle(ConnectionStatusChangedHandle);
+		}
+
+		ConnectionStatusChangedHandle.Reset();
+	}
+
+	if (LiveLinkProvider.IsValid())
+	{
+		FPlatformMisc::LowLevelOutputDebugStringf(TEXT("LiveLinkProvider References: %d\n"), LiveLinkProvider.GetSharedReferenceCount());
+		FPlatformMisc::LowLevelOutputDebugString(TEXT("Deleting Live Link\n"));
+		LiveLinkProvider.Reset();
+	}
+
+	FPlatformMisc::LowLevelOutputDebugString(TEXT("Live Link Provider stopped!\n"));
+}
+
 const MString LiveLinkSubjectNamesCommandName("LiveLinkSubjectNames");
 
 class LiveLinkSubjectNamesCommand : public MPxCommand
@@ -1406,8 +1458,216 @@ public:
 	}
 };
 
+class LiveLinkMessagingSettingsCommand : public MPxCommand
+{
+public:
+	static constexpr char CommandName[] = "LiveLinkMessagingSettings";
+
+	static constexpr char UnicastEndpointFlag[] = "ue";
+	static constexpr char UnicastEndpointFlagLong[] = "unicastEndpoint";
+	static constexpr char StaticEndpointsFlag[] = "se";
+	static constexpr char StaticEndpointsFlagLong[] = "staticEndpoints";
+	static constexpr char AddEndpointFlag[] = "a";
+	// Long names must be at least four characters, so it can't be just "add".
+	static constexpr char AddEndpointFlagLong[] = "addEndpoint";
+	static constexpr char RemoveEndpointFlag[] = "r";
+	static constexpr char RemoveEndpointFlagLong[] = "removeEndpoint";
+
+	static void* Creator() { return new LiveLinkMessagingSettingsCommand(); }
+
+	static MSyntax CreateSyntax()
+	{
+		MStatus Status;
+		MSyntax Syntax;
+
+		Syntax.enableQuery(true);
+
+		Status = Syntax.setObjectType(MSyntax::kStringObjects);
+		CHECK_MSTATUS(Status);
+
+		Status = Syntax.addFlag(UnicastEndpointFlag, UnicastEndpointFlagLong);
+		CHECK_MSTATUS(Status);
+		Status = Syntax.addFlag(StaticEndpointsFlag, StaticEndpointsFlagLong);
+		CHECK_MSTATUS(Status);
+		Status = Syntax.addFlag(AddEndpointFlag, AddEndpointFlagLong);
+		CHECK_MSTATUS(Status);
+		Status = Syntax.addFlag(RemoveEndpointFlag, RemoveEndpointFlagLong);
+		CHECK_MSTATUS(Status);
+
+		return Syntax;
+	}
+
+	MStatus doIt(const MArgList& args) override
+	{
+		MStatus Status;
+		MArgDatabase ArgData(syntax(), args, &Status);
+		CHECK_MSTATUS_AND_RETURN_IT(Status);
+
+		MStringArray EndpointStrings;
+		Status = ArgData.getObjects(EndpointStrings);
+		CHECK_MSTATUS_AND_RETURN_IT(Status);
+
+		const bool bIsUnicast = ArgData.isFlagSet(UnicastEndpointFlag, &Status);
+		CHECK_MSTATUS_AND_RETURN_IT(Status);
+		const bool bIsStatic = ArgData.isFlagSet(StaticEndpointsFlag, &Status);
+		CHECK_MSTATUS_AND_RETURN_IT(Status);
+
+		const bool bAddStatic = ArgData.isFlagSet(AddEndpointFlag, &Status);
+		CHECK_MSTATUS_AND_RETURN_IT(Status);
+		const bool bRemoveStatic = ArgData.isFlagSet(RemoveEndpointFlag, &Status);
+		CHECK_MSTATUS_AND_RETURN_IT(Status);
+
+		if ((static_cast<int>(bIsUnicast) + static_cast<int>(bIsStatic)) != 1)
+		{
+			MString ErrorMsg;
+			ErrorMsg.format(
+				"Must specify exactly one of -^1s or -^2s",
+				UnicastEndpointFlagLong, StaticEndpointsFlagLong);
+			displayError(ErrorMsg);
+			return MS::kFailure;
+		}
+
+		if (!IModularFeatures::Get().IsModularFeatureAvailable(INetworkMessagingExtension::ModularFeatureName))
+		{
+			return MS::kFailure;
+		}
+
+		INetworkMessagingExtension& NetworkExtension =
+			IModularFeatures::Get().GetModularFeature<INetworkMessagingExtension>(INetworkMessagingExtension::ModularFeatureName);
+
+		UUdpMessagingSettings* Settings = GetMutableDefault<UUdpMessagingSettings>();
+		if (!Settings)
+		{
+			return MS::kFailure;
+		}
+
+		if (ArgData.isQuery())
+		{
+			if (bIsUnicast)
+			{
+				setResult(MString(*Settings->UnicastEndpoint));
+			}
+			else
+			{
+				for (const FString& StaticEndpoint : Settings->StaticEndpoints)
+				{
+					appendToResult(MString(*StaticEndpoint));
+				}
+
+				if (!isCurrentResultArray())
+				{
+					// Make sure we return an empty string array rather than nothing if
+					// there were no static endpoints.
+					static const MStringArray EmptyStringArray;
+					setResult(EmptyStringArray);
+				}
+			}
+
+			return MS::kSuccess;
+		}
+
+		// Code below this point will (potentially) modify the settings and might
+		// restart LiveLink. The return value will indicate whether the settings were
+		// changed, so mark it as unchanged initially.
+		setResult(false);
+
+		const unsigned int NumEndpointStrings = EndpointStrings.length();
+		if (NumEndpointStrings < 1u)
+		{
+			displayError("Must specify endpoint(s) when editing");
+			return MS::kFailure;
+		}
+
+		// Validate the endpoint strings.
+		for (unsigned int Index = 0u; Index < NumEndpointStrings; ++Index)
+		{
+			const MString& EndpointString = EndpointStrings[Index];
+			FIPv4Endpoint Endpoint;
+			if (!FIPv4Endpoint::FromHostAndPort(EndpointString.asChar(), Endpoint))
+			{
+				MString ErrorMsg;
+				ErrorMsg.format(
+					"The string \"^1s\" is not a valid endpoint string",
+					EndpointString);
+				displayError(ErrorMsg);
+				return MS::kFailure;
+			}
+		}
+
+		if (bIsUnicast)
+		{
+			if (EndpointStrings.length() != 1u)
+			{
+				displayError("Must specify exactly one endpoint when editing the unicast endpoint");
+				return MS::kFailure;
+			}
+
+			if (bAddStatic || bRemoveStatic)
+			{
+				MString ErrorMsg;
+				ErrorMsg.format(
+					"The -^1s and -^2s flags are not valid when editing the unicast endpoint",
+					AddEndpointFlagLong, RemoveEndpointFlagLong);
+				displayError(ErrorMsg);
+				return MS::kFailure;
+			}
+
+			if (Settings->UnicastEndpoint != EndpointStrings[0].asChar())
+			{
+				StopLiveLink();
+
+				Settings->UnicastEndpoint = EndpointStrings[0].asChar();
+				NetworkExtension.RestartServices();
+
+				StartLiveLink();
+				LiveLinkStreamManager->RebuildSubjects();
+
+				setResult(true);
+			}
+		}
+		else
+		{
+			// Editing static endpoints.
+			if ((static_cast<int>(bAddStatic) + static_cast<int>(bRemoveStatic)) != 1)
+			{
+				MString ErrorMsg;
+				ErrorMsg.format(
+					"Must specify exactly one of -^1s or -^2s when editing static endpoints",
+					AddEndpointFlagLong, RemoveEndpointFlagLong);
+				displayError(ErrorMsg);
+				return MS::kFailure;
+			}
+
+			for (unsigned int Index = 0u; Index < NumEndpointStrings; ++Index)
+			{
+				const MString& EndpointString = EndpointStrings[Index];
+				const TArray<FString>::SizeType SettingsIndex = Settings->StaticEndpoints.Find(EndpointString.asChar());
+				if (bAddStatic && SettingsIndex == INDEX_NONE)
+				{
+					Settings->StaticEndpoints.Add(EndpointString.asChar());
+					NetworkExtension.AddEndpoint(EndpointString.asChar());
+					setResult(true);
+				}
+				else if (bRemoveStatic && SettingsIndex != INDEX_NONE)
+				{
+					Settings->StaticEndpoints.RemoveAt(SettingsIndex);
+					NetworkExtension.RemoveEndpoint(EndpointString.asChar());
+					setResult(true);
+				}
+			}
+		}
+
+		return MS::kSuccess;
+	}
+};
+
 void OnForceChange(MTime& time, void* clientData)
 {
+	if (!LiveLinkProvider.IsValid())
+	{
+		return;
+	}
+
 	LiveLinkStreamManager->StreamSubjects();
 }
 
@@ -1455,11 +1715,6 @@ void AllDagChangesCallback(
 	LiveLinkStreamManager->RebuildSubjects();
 }
 
-void OnConnectionStatusChanged()
-{
-	MGlobal::executeCommand("MayaLiveLinkRefreshConnectionUI");
-}
-
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 TMap<uintptr_t, MCallbackId> PostRenderCallbackIds;
@@ -1467,6 +1722,11 @@ TMap<uintptr_t, MCallbackId> ViewportDeletedCallbackIds;
 
 void OnPostRenderViewport(const MString &str, void* ClientData)
 {
+	if (!LiveLinkProvider.IsValid())
+	{
+		return;
+	}
+
 	LiveLinkStreamManager->StreamSubjects();
 }
 
@@ -1581,11 +1841,8 @@ DLLEXPORT MStatus initializePlugin(MObject MayaPluginObject)
 		bUEInitialized = true; // Don't redo this part if someone unloads and reloads our plugin
 	}
 
-	LiveLinkProvider = ILiveLinkProvider::CreateLiveLinkProvider(TEXT("Maya Live Link"));
-	ConnectionStatusChangedHandle = LiveLinkProvider->RegisterConnStatusChangedHandle(FLiveLinkProviderConnectionStatusChanged::FDelegate::CreateStatic(&OnConnectionStatusChanged));
-
-	// We do not tick the core engine but we need to tick the ticker to make sure the message bus endpoint in LiveLinkProvider is up to date
-	FTicker::GetCoreTicker().Tick(1.f);
+	StartLiveLink();
+	
 	LiveLinkStreamManager = MakeShareable(new FLiveLinkStreamedSubjectManager());
 
 	// Tell Maya about our plugin
@@ -1622,6 +1879,8 @@ DLLEXPORT MStatus initializePlugin(MObject MayaPluginObject)
 	MayaPlugin.registerCommand(LiveLinkChangeSubjectNameCommandName, LiveLinkChangeSubjectNameCommand::creator);
 	MayaPlugin.registerCommand(LiveLinkConnectionStatusCommandName, LiveLinkConnectionStatusCommand::creator);
 	MayaPlugin.registerCommand(LiveLinkChangeSubjectStreamTypeCommandName, LiveLinkChangeSubjectStreamTypeCommand::creator);
+	MayaPlugin.registerCommand(LiveLinkMessagingSettingsCommand::CommandName, LiveLinkMessagingSettingsCommand::Creator,
+		LiveLinkMessagingSettingsCommand::CreateSyntax);
 
 	// Print to Maya's output window, too!
 	UE_LOG(LogBlankMayaPlugin, Display, TEXT("MayaLiveLinkPlugin initialized"));
@@ -1659,6 +1918,7 @@ DLLEXPORT MStatus uninitializePlugin(MObject MayaPluginObject)
 	MayaPlugin.deregisterCommand(LiveLinkChangeSubjectNameCommandName);
 	MayaPlugin.deregisterCommand(LiveLinkConnectionStatusCommandName);
 	MayaPlugin.deregisterCommand(LiveLinkChangeSubjectStreamTypeCommandName);
+	MayaPlugin.deregisterCommand(LiveLinkMessagingSettingsCommand::CommandName);
 
 	ClearViewportCallbacks();
 	if (myCallbackIds.length() != 0)
@@ -1669,13 +1929,7 @@ DLLEXPORT MStatus uninitializePlugin(MObject MayaPluginObject)
 
 	LiveLinkStreamManager->ClearSubjects();
 
-	if (ConnectionStatusChangedHandle.IsValid())
-	{
-		LiveLinkProvider->UnregisterConnStatusChangedHandle(ConnectionStatusChangedHandle);
-		ConnectionStatusChangedHandle.Reset();
-	}
-
-	LiveLinkProvider.Reset();
+	StopLiveLink();
 	LiveLinkStreamManager.Reset();
 
 	FTicker::GetCoreTicker().Tick(1.f);
