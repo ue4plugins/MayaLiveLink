@@ -360,6 +360,9 @@ struct FLiveLinkStreamedJointHierarchySubject : IStreamedEntity
 		if (StreamMode == FCharacterStreamMode::RootOnly)
 		{
 			FLiveLinkStaticDataStruct StaticData(FLiveLinkTransformStaticData::StaticStruct());
+			FLiveLinkTransformStaticData& TransformData = *StaticData.Cast<FLiveLinkTransformStaticData>();
+			TransformData.bIsScaleSupported = true;
+			
 			LiveLinkProvider->UpdateSubjectStaticData(SubjectName, ULiveLinkTransformRole::StaticClass(), MoveTemp(StaticData));
 		}
 		else if (StreamMode == FCharacterStreamMode::FullHierarchy)
@@ -860,8 +863,11 @@ public:
 	{
 		if (StreamMode == FPropStreamMode::RootOnly)
 		{
-			FLiveLinkStaticDataStruct TransformData(FLiveLinkTransformStaticData::StaticStruct());
-			LiveLinkProvider->UpdateSubjectStaticData(SubjectName, ULiveLinkTransformRole::StaticClass(), MoveTemp(TransformData));
+			FLiveLinkStaticDataStruct StaticData(FLiveLinkTransformStaticData::StaticStruct());
+			FLiveLinkTransformStaticData& TransformData = *StaticData.Cast<FLiveLinkTransformStaticData>();
+			TransformData.bIsScaleSupported = true;
+			
+			LiveLinkProvider->UpdateSubjectStaticData(SubjectName, ULiveLinkTransformRole::StaticClass(), MoveTemp(StaticData));
 		}
 		else if (StreamMode == FPropStreamMode::FullHierarchy)
 		{
