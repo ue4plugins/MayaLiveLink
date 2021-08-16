@@ -229,6 +229,11 @@ class MayaLiveLinkUI(LiveLinkCommand):
             def _OnOk(*args, **kwargs):
                 NewUnicastEndpoint = cmds.textField(
                     UnicastTextField, q=True, text=True).strip()
+                if not NewUnicastEndpoint:
+                    # Revert to the default unicast endpoint if the
+                    # text field is emptied.
+                    NewUnicastEndpoint = '0.0.0.0:0'
+
                 NewStaticEndpoints = cmds.textField(
                     StaticTextField, q=True, text=True).strip() or []
                 if NewStaticEndpoints:
