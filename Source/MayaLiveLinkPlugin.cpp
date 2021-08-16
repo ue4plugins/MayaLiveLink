@@ -1228,6 +1228,13 @@ public:
 			MObject SelectedRoot;
 			SelectedItems.getDependNode(i, SelectedRoot);
 
+			// Check whether the selected node is a DAG node first. If it's not, resetting DagIterator
+			// with a non-DAG node will cause us to iterate from the scene root, which could result in
+			// arbitrary nodes outside the selection being added (often the "|persp" camera).
+			if (!SelectedRoot.hasFn(MFn::kDagNode)) {
+				continue;
+			}
+
 			bool ItemAdded = false;
 
 			MItDag DagIterator;
